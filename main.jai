@@ -78,8 +78,12 @@ draw_one_frame :: () {
     x, y, width, height := get_dimensions(window, true);
     ui_per_frame_update(window, width, height, current_time);
 
+    r := get_rect(0, 0, xx width, xx height);
+
     draw_image();
-    draw_rotate_buttons();
+
+    r_buttons := cut_right(r, 120);
+    draw_buttons(r_buttons);
 
     Simp.swap_buffers(window);
 }
@@ -117,19 +121,28 @@ draw_image :: () {
     Simp.immediate_flush();
 }
 
-draw_rotate_buttons :: () {
+draw_buttons :: (r: Rect) {
     BUTTON_WIDTH :: 60.0;
     BUTTON_HEIGHT :: 60.0;
 
-    r := get_rect(window_width - BUTTON_WIDTH, window_height - BUTTON_HEIGHT * 2, BUTTON_WIDTH, BUTTON_HEIGHT * 2);
+    r_rotate, r_open := cut_bottom(r, BUTTON_HEIGHT * 2);
+    r_rotate = cut_right(r_rotate, BUTTON_WIDTH);
 
-    r1, r2 := cut_top(r, BUTTON_HEIGHT);
+    r_rotate_left, r_rotate_right := cut_top(r_rotate, BUTTON_HEIGHT);
 
-    pressed := button(r1, "Left");
+    pressed := button(r_rotate_left, "Left");
     if pressed then rotate_counter_clockwise();
 
-    pressed = button(r2, "Right");
+    pressed = button(r_rotate_right, "Right");
     if pressed then rotate_clockwise();
+
+    r_open = cut_bottom(r_open, BUTTON_HEIGHT);
+
+    pressed = button(r_open, "Open");
+    if pressed {
+        file, success := platform_open_file();
+        if success then replace_open_image(file);
+    }
 }
 
 rotate_counter_clockwise :: () {
@@ -153,7 +166,6 @@ update_image :: () {
     modified_image_width = raw_image_width;
     modified_image_height = raw_image_height;
 
-    // rotate();
     resize();
     texture_load_from_raw_memory(*image, modified_image, modified_image_width, modified_image_height, raw_image_channels);
 }
@@ -313,7 +325,7 @@ Input :: #import "Input";
 Simp  :: #import "Simp";
 
 #if OS == .WINDOWS {
-    Utf8    :: #import "Windows_Utf8";
+    Utf8 :: #import "Windows_Utf8";
 
     platform_open_file :: () -> string, success: bool #must {
         wfilter := Utf8.utf8_to_wide("Image\0*.jpeg;*.jpg;*.png",, temp);
