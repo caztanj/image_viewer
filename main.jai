@@ -1,6 +1,5 @@
 main :: () {
     #if OS == .WINDOWS {
-        Windows :: #import "Windows";
         Windows.SetProcessDPIAware();
         Windows.timeBeginPeriod(1);
     }
@@ -52,13 +51,14 @@ main :: () {
                 case .KEYBOARD;
                     if it.key_pressed && it.key_code == .ESCAPE then quit = true;
 
+                    if it.modifier_flags.ctrl_pressed && it.key_code == #char "O" && it.key_pressed {
+                        file, success := platform_open_file();
+                        if success then replace_open_image(file);
+                    }
+
                 case .DRAG_AND_DROP_FILES;
                     file := it.files[0];
-                    raw_image = stbi_load(temp_c_string(file), *raw_image_width, *raw_image_height, *raw_image_channels, 0);
-                    assert(raw_image != null);
-
-                    image_rotation = 0;
-                    update_image();
+                    replace_open_image(file);
             }
         }
 
@@ -271,6 +271,16 @@ texture_load_from_raw_memory :: (texture: *Simp.Texture, data: *u8, w: s32, h: s
     Simp.texture_load_from_bitmap(texture, *bitmap);
 }
 
+replace_open_image :: (file: string) {
+    stbi_image_free(raw_image);
+
+    raw_image = stbi_load(temp_c_string(file), *raw_image_width, *raw_image_height, *raw_image_channels, 0);
+    assert(raw_image != null);
+
+    image_rotation = 0;
+    update_image();
+}
+
 current_time: float64;
 
 window: Window_Type;
@@ -301,3 +311,28 @@ modified_image_height: s32;
 
 Input :: #import "Input";
 Simp  :: #import "Simp";
+
+#if OS == .WINDOWS {
+    Utf8    :: #import "Windows_Utf8";
+
+    platform_open_file :: () -> string, success: bool #must {
+        wfilter := Utf8.utf8_to_wide("Image\0*.jpeg;*.jpg;*.png",, temp);
+
+        buffer: [512] u16;
+
+        ofn: Windows.OPENFILENAMEW;
+        ofn.lStructSize = size_of(Windows.OPENFILENAMEW);
+        ofn.lpstrFilter = wfilter;
+        ofn.lpstrFile   = buffer.data;
+        ofn.nMaxFile    = buffer.count;
+        ofn.Flags       = Windows.OFN_NOCHANGEDIR;
+
+        open_success := Windows.GetOpenFileNameW(*ofn);
+        if open_success {
+            result, success := Utf8.wide_to_utf8(buffer.data,, temp);
+            return result, success;
+        }
+
+        return "", false;
+    }
+}
