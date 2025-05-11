@@ -4,6 +4,14 @@ main :: () {
         Windows.timeBeginPeriod(1);
     }
 
+    file := "image.jpeg";
+
+    args := get_command_line_arguments();
+
+    if args.count > 1 {
+        file = args[1];
+    }
+
     WANTED_MSAA :: 8;
 
     window = create_window(window_width, window_height, "Image Viewer", wanted_msaa = WANTED_MSAA);
@@ -19,7 +27,7 @@ main :: () {
 
     stbi_set_flip_vertically_on_load(1);
 
-    raw_image = stbi_load("image.jpeg", *raw_image_width, *raw_image_height, *raw_image_channels, 0);
+    raw_image = stbi_load(temp_c_string(file), *raw_image_width, *raw_image_height, *raw_image_channels, 0);
     assert(raw_image != null);
 
     update_image();
@@ -325,7 +333,8 @@ Input :: #import "Input";
 Simp  :: #import "Simp";
 
 #if OS == .WINDOWS {
-    Utf8 :: #import "Windows_Utf8";
+    Utf8              :: #import "Windows_Utf8";
+    Windows_Resources :: #import "Windows_Resources";
 
     platform_open_file :: () -> string, success: bool #must {
         wfilter := Utf8.utf8_to_wide("Image\0*.jpeg;*.jpg;*.png",, temp);
@@ -346,5 +355,9 @@ Simp  :: #import "Simp";
         }
 
         return "", false;
+    }
+
+    #run {
+        Windows_Resources.disable_runtime_console();
     }
 }
