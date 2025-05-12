@@ -77,7 +77,9 @@ main :: () {
         sleep_milliseconds(10);
     }
 
-    report_memory_leaks();
+    #if DEBUG_MEMORY {
+        report_memory_leaks();
+    }
 }
 
 draw_one_frame :: () {
@@ -320,7 +322,9 @@ modified_image: *u8;
 modified_image_width: s32;
 modified_image_height: s32;
 
-#import "Basic" () (MEMORY_DEBUGGER = true);
+DEBUG_MEMORY :: false;
+
+#import "Basic" () (MEMORY_DEBUGGER = DEBUG_MEMORY);
 #import "GetRect_LeftHanded";
 #import "GL";
 #import "Math";
