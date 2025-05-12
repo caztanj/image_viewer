@@ -4,7 +4,7 @@ main :: () {
         Windows.timeBeginPeriod(1);
     }
 
-    file := "image.jpeg";
+    file := "";
 
     args := get_command_line_arguments();
 
@@ -27,10 +27,12 @@ main :: () {
 
     stbi_set_flip_vertically_on_load(1);
 
-    raw_image = stbi_load(temp_c_string(file), *raw_image_width, *raw_image_height, *raw_image_channels, 0);
-    assert(raw_image != null);
+    if file.count > 0 {
+        raw_image = stbi_load(temp_c_string(file), *raw_image_width, *raw_image_height, *raw_image_channels, 0);
+        assert(raw_image != null);
 
-    update_image();
+        update_image();
+    }
 
     ui_init();
 
@@ -46,7 +48,7 @@ main :: () {
             window_width = it.width;
             window_height = it.height;
 
-            update_image();
+            if raw_image != null then update_image();
         }
 
         for Input.events_this_frame {
@@ -90,7 +92,7 @@ draw_one_frame :: () {
 
     r := get_rect(0, 0, xx width, xx height);
 
-    draw_image();
+    if raw_image != null then draw_image();
 
     r_buttons := cut_right(r, 120);
     draw_buttons(r_buttons);
