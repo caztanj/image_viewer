@@ -6,7 +6,7 @@ main :: () {
 
     file := "";
 
-    args := get_command_line_arguments();
+    args := get_command_line_arguments(,, temp);
 
     if args.count > 1 {
         file = args[1];
@@ -33,6 +33,8 @@ main :: () {
 
         update_image();
     }
+
+    init_thread_group();
 
     ui_init();
 
@@ -63,16 +65,32 @@ main :: () {
 
                     if it.modifier_flags.ctrl_pressed && it.key_code == #char "O" && it.key_pressed {
                         file, success := platform_open_file();
-                        if success then replace_open_image(file);
+                        if success then load_image_from_file(file);
                     }
 
                 case .DRAG_AND_DROP_FILES;
                     file := it.files[0];
-                    replace_open_image(file);
+                    load_image_from_file(file);
             }
         }
 
         draw_one_frame();
+
+        results := get_completed_work(*thread_group);
+
+        for results {
+            work := cast(*Work) it;
+
+            if #complete work.type == {
+                case .Load_Image;
+                    replace_open_image(work.load_image);
+
+                case .Resize_Image;
+                    texture_load_from_raw_memory(*image, work.resize_image.image, work.resize_image.width, work.resize_image.height, work.resize_image.channels);
+            }
+
+            deinit(work);
+        }
 
         reset_temporary_storage();
 
@@ -142,18 +160,20 @@ draw_buttons :: (r: Rect) {
 
     r_rotate_left, r_rotate_right := cut_top(r_rotate, BUTTON_HEIGHT);
 
-    pressed := button(r_rotate_left, "Left");
-    if pressed then rotate_counter_clockwise();
+    if raw_image != null {
+        pressed := button(r_rotate_left, "Left");
+        if pressed then rotate_counter_clockwise();
 
-    pressed = button(r_rotate_right, "Right");
-    if pressed then rotate_clockwise();
+        pressed = button(r_rotate_right, "Right");
+        if pressed then rotate_clockwise();
+    }
 
     r_open = cut_bottom(r_open, BUTTON_HEIGHT);
 
-    pressed = button(r_open, "Open");
+    pressed := button(r_open, "Open");
     if pressed {
         file, success := platform_open_file();
-        if success then replace_open_image(file);
+        if success then load_image_from_file(file);
     }
 }
 
@@ -163,6 +183,7 @@ rotate_counter_clockwise :: () {
     if values_are_close(image_rotation, TAU) then image_rotation = 0;
 
     update_image();
+    update_image_size();
 }
 
 rotate_clockwise :: () {
@@ -171,20 +192,12 @@ rotate_clockwise :: () {
     if values_are_close(image_rotation, -TAU) then image_rotation = 0;
 
     update_image();
+    update_image_size();
 }
 
-update_image :: () {
-    modified_image = raw_image;
-    modified_image_width = raw_image_width;
-    modified_image_height = raw_image_height;
-
-    resize();
-    texture_load_from_raw_memory(*image, modified_image, modified_image_width, modified_image_height, raw_image_channels);
-}
-
-resize :: () {
-    w := cast(float) modified_image_width;
-    h := cast(float) modified_image_height;
+update_image_size :: () {
+    w := cast(float) raw_image_width;
+    h := cast(float) raw_image_height;
 
     aspect_ratio := w / h;
     target_width := cast(float) window_width;
@@ -201,14 +214,48 @@ resize :: () {
         target_height = target_width / aspect_ratio;
     }
 
-    resized_image := talloc(cast(int) target_width * cast(int) target_height * raw_image_channels);
+    image.width = xx target_width;
+    image.height = xx target_height;
+}
 
-    result := stbir_resize_uint8(modified_image, modified_image_width, modified_image_height, 0, resized_image, xx target_width, xx target_height, 0, raw_image_channels);
+update_image :: () {
+    work := New(Work);
+    work.type = .Resize_Image;
+
+    work.resize_image.image    = raw_image;
+    work.resize_image.width    = raw_image_width;
+    work.resize_image.height   = raw_image_height;
+    work.resize_image.channels = raw_image_channels;
+    work.resize_image.rotation = image_rotation;
+
+    add_work(*thread_group, work, "Resize_Image");
+}
+
+resize :: (image: *u8, width: s32, height: s32, channels: s32, rotation: float) -> image: *u8, width: s32, height: s32 {
+    w := cast(float) width;
+    h := cast(float) height;
+
+    aspect_ratio := w / h;
+    target_width := cast(float) window_width;
+    target_height := cast(float) window_height;
+
+    if values_are_close(abs(rotation), PI / 2) || values_are_close(abs(rotation), TAU - PI / 2) {
+        target_width = cast(float) window_height;
+        target_height = cast(float) window_width;
+    }
+
+    if (target_width / target_height) > aspect_ratio {
+        target_width = target_height * aspect_ratio;
+    } else {
+        target_height = target_width / aspect_ratio;
+    }
+
+    resized_image := alloc(cast(int) target_width * cast(int) target_height * raw_image_channels);
+
+    result := stbir_resize_uint8(image, width, height, 0, resized_image, xx target_width, xx target_height, 0, raw_image_channels);
     assert(result != 0);
 
-    modified_image = resized_image;
-    modified_image_width = xx target_width;
-    modified_image_height = xx target_height;
+    return resized_image, xx target_width, xx target_height;
 }
 
 rotate :: () {
@@ -256,10 +303,6 @@ rotate :: () {
             }
         }
     }
-
-    modified_image = rotated_image;
-    modified_image_width = xx abs(width);
-    modified_image_height = xx abs(height);
 }
 
 rotate_around_center :: (p: Vector2, center: Vector2, theta: float) -> Vector2 {
@@ -295,15 +338,99 @@ texture_load_from_raw_memory :: (texture: *Simp.Texture, data: *u8, w: s32, h: s
     Simp.texture_load_from_bitmap(texture, *bitmap);
 }
 
-replace_open_image :: (file: string) {
+load_image_from_file :: (file: string) {
+    w := New(Work);
+    w.type = .Load_Image;
+    w.load_image.file = copy_string(file);
+
+    add_work(*thread_group, w, "Load_Image");
+}
+
+replace_open_image :: (using work: Work_Load_Image) {
     stbi_image_free(raw_image);
 
-    raw_image = stbi_load(temp_c_string(file), *raw_image_width, *raw_image_height, *raw_image_channels, 0);
-    assert(raw_image != null);
+    raw_image = image;
+    raw_image_width = width;
+    raw_image_height = height;
+    raw_image_channels = channels;
 
     image_rotation = 0;
     update_image();
 }
+
+// @Todo: Make sure we don't have multiple Load_Image and/or Resize_Image queued.
+Work_Type :: enum {
+    Load_Image;
+    Resize_Image;
+}
+
+Work :: struct {
+    type: Work_Type;
+
+    union {
+        load_image:   Work_Load_Image;
+        resize_image: Work_Resize_Image;
+    }
+}
+
+Work_Load_Image :: struct {
+    file: string;
+
+    image: *u8;
+
+    width:    s32;
+    height:   s32;
+    channels: s32;
+}
+
+Work_Resize_Image :: struct {
+    image: *u8;
+
+    width:    s32;
+    height:   s32;
+    channels: s32;
+
+    rotation: float;
+}
+
+deinit :: (work: *Work) {
+    if #complete work.type == {
+        case .Load_Image;
+            free(work.load_image.file);
+
+        case .Resize_Image;
+            free(work.resize_image.image);
+    }
+
+    free(work);
+}
+
+worker :: (group: *Thread_Group, thread: *Thread, work: *void) -> Thread_Continue_Status {
+    w := cast(*Work) work;
+
+    if #complete w.type == {
+        case .Load_Image;
+            using w.load_image;
+            image = stbi_load(temp_c_string(file), *width, *height, *channels, 0);
+            assert(image != null);
+
+        case .Resize_Image;
+            using w.resize_image;
+            image, width, height = resize(image, width, height, channels, rotation);
+    }
+
+    return .CONTINUE;
+}
+
+init_thread_group :: () {
+    init(*thread_group, 1, worker);
+
+    thread_group.name = "Worker Thread Group";
+
+    start(*thread_group);
+}
+
+thread_group: Thread_Group;
 
 current_time: float64;
 
@@ -320,19 +447,16 @@ raw_image_width: s32;
 raw_image_height: s32;
 raw_image_channels: s32;
 
-modified_image: *u8;
-modified_image_width: s32;
-modified_image_height: s32;
-
 DEBUG_MEMORY :: false;
 
-#import "Basic" () (MEMORY_DEBUGGER = DEBUG_MEMORY);
+#import "Basic" () (MEMORY_DEBUGGER = DEBUG_MEMORY, TEMP_ALLOCATOR_POISON_FREED_MEMORY = DEBUG_MEMORY);
 #import "GetRect_LeftHanded";
 #import "GL";
 #import "Math";
 #import "Sloppy_Math";
 #import "stb_image";
 #import "stb_image_resize";
+#import "Thread";
 #import "Window_Creation";
 
 Input :: #import "Input";
