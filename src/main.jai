@@ -50,7 +50,10 @@ main :: () {
             window_width = it.width;
             window_height = it.height;
 
-            if raw_image != null then update_image();
+            if raw_image != null {
+                update_image_size();
+                update_image();
+            }
         }
 
         for Input.events_this_frame {
