@@ -12,6 +12,8 @@ main :: () {
         file = args[1];
     }
 
+    init_thread_group();
+
     WANTED_MSAA :: 8;
 
     window = create_window(window_width, window_height, "Image Viewer", wanted_msaa = WANTED_MSAA);
@@ -33,8 +35,6 @@ main :: () {
 
         update_image();
     }
-
-    init_thread_group();
 
     ui_init();
 
